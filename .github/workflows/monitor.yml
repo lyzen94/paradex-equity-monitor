@@ -1,0 +1,21 @@
+name: Paradex Equity Monitor Trigger
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # 每 10 分钟运行一次
+  workflow_dispatch: # 支持手动触发
+
+jobs:
+  trigger-monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Vercel Monitor API
+        run: |
+          # 自动尝试获取 Vercel URL，如果未设置则使用占位符
+          # 建议用户在 GitHub Secrets 中设置 VERCEL_URL
+          URL="${{ secrets.VERCEL_URL }}"
+          if [ -z "$URL" ]; then
+            echo "Warning: VERCEL_URL secret is not set. Please add it to GitHub Secrets."
+            exit 1
+          fi
+          curl -X GET "$URL/api/monitor"
