@@ -1,10 +1,4 @@
 {
-  "crons": [
-    {
-      "path": "/api/monitor",
-      "schedule": "*/10 * * * *"
-    }
-  ],
   "rewrites": [
     {
       "source": "/api/monitor",
