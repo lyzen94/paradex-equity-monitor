@@ -22,38 +22,38 @@ class handler(BaseHTTPRequestHandler):
             env_name = os.getenv("PARADEX_ENV", "PROD")
             
             if not l2_address or not l2_private_key:
-                raise ValueError("Missing PARADEX_L2_ADDRESS or PARADEX_L2_PRIVATE_KEY environment variables")
+                raise ValueError("Missing PARADEX_L2_ADDRESS or PARADEX_L2_PRIVATE_KEY")
 
-            # 2. 延迟导入 SDK 以捕获可能的导入错误
-            try:
-                from paradex_py import ParadexSubkey
-                from paradex_py.environment import Environment, PROD, TESTNET
-            except ImportError as e:
-                raise ImportError(f"Failed to import paradex-py: {str(e)}")
+            # 2. 导入 SDK
+            from paradex_py import ParadexSubkey
+            from paradex_py.environment import PROD, TESTNET
 
             # 3. 初始化 Paradex 客户端
-            # 显式指定环境，避免 SDK 内部查找失败
             target_env = PROD if env_name == "PROD" else TESTNET
-            
-            try:
-                paradex = ParadexSubkey(
-                    env=target_env,
-                    l2_address=l2_address,
-                    l2_private_key=l2_private_key,
-                )
-            except Exception as e:
-                raise Exception(f"Failed to initialize ParadexSubkey: {str(e)}")
+            paradex = ParadexSubkey(
+                env=target_env,
+                l2_address=l2_address,
+                l2_private_key=l2_private_key,
+            )
 
             # 4. 获取当前权益
-            try:
-                account_summary = paradex.api_client.fetch_account_summary()
-                # 尝试多个可能的字段名
-                equity_val = account_summary.get("trading_equity") or \
-                             account_summary.get("account_value") or \
-                             account_summary.get("total_equity") or 0
-                current_equity = Decimal(str(equity_val))
-            except Exception as e:
-                raise Exception(f"Failed to fetch account summary: {str(e)}")
+            # SDK 返回的是对象，需要访问其属性
+            account_summary = paradex.api_client.fetch_account_summary()
+            
+            # 尝试访问对象的属性
+            equity_val = 0
+            for attr in ['trading_equity', 'account_value', 'total_equity']:
+                if hasattr(account_summary, attr):
+                    equity_val = getattr(account_summary, attr)
+                    if equity_val is not None:
+                        break
+            
+            # 如果还是 0，尝试作为字典访问（以防 SDK 版本差异）
+            if equity_val == 0 and isinstance(account_summary, dict):
+                equity_val = account_summary.get('trading_equity') or \
+                             account_summary.get('account_value') or 0
+            
+            current_equity = Decimal(str(equity_val))
 
             # 5. 状态管理 (Vercel KV / Redis)
             kv_url = os.getenv("KV_REST_API_URL")
@@ -64,7 +64,6 @@ class handler(BaseHTTPRequestHandler):
             
             if kv_url and kv_token:
                 key = f"equity_history_{l2_address}"
-                # 确保 URL 格式正确
                 base_url = kv_url.rstrip('/')
                 
                 # 读取历史
@@ -75,7 +74,7 @@ class handler(BaseHTTPRequestHandler):
                         if data:
                             history = json.loads(data)
                 except:
-                    pass # KV 读取失败不应中断监控
+                    pass
                 
                 # 清理旧数据
                 now_ts = time.time()
@@ -138,14 +137,13 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(response).encode())
 
         except Exception as e:
-            # 返回详细错误信息以便调试
-            self.send_response(200) # 即使出错也返回 200，方便在浏览器看 JSON
+            self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             error_response = {
                 "status": "error",
                 "message": str(e),
-                "traceback": traceback.format_exc() if os.getenv("DEBUG") else "Set DEBUG=1 for full trace"
+                "traceback": traceback.format_exc()
             }
             self.wfile.write(json.dumps(error_response).encode())
         return
